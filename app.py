@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import time
+import altair as alt
 from judge_logic import evaluate_with_yandex
 
 # Page Config
@@ -39,7 +40,108 @@ folder_id = st.sidebar.text_input("Yandex Folder ID", disabled=demo_mode)
 if not demo_mode:
     st.sidebar.caption("Folder ID is required to access YandexGPT resources in your cloud.")
 
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🎭 Персона Судьи")
+persona_name = st.sidebar.selectbox(
+    "Выберите стиль оценки",
+    ["Strict Fact-Checker", "Helpful Editor"]
+)
+
+if persona_name == "Strict Fact-Checker":
+    st.sidebar.info("🧐 **Strict Fact-Checker**: Фокус на точности фактов. Жестко штрафует за галлюцинации.")
+else:
+    st.sidebar.info("✍️ **Helpful Editor**: Фокус на стиле, структуре и тоне. Ценит форматирование.")
+
+st.sidebar.markdown("---")
 st.sidebar.info("Оценка производится по 8 критериям:\n\n1. Безвредность\n2. Достоверность\n3. Полезность\n4. Полнота\n5. Лаконичность\n6. Актуальность\n7. Уместность\n8. Читаемость")
+
+# Analytics Function
+def show_analytics(df):
+    st.markdown("### 📊 Аналитика и Токеномика")
+    
+    # 1. Prepare Data
+    total = len(df)
+    
+    # Derive winner column if not present
+    if "winner" not in df.columns:
+        def get_winner(row):
+            sa = row.get("score_a_overall", 0)
+            sb = row.get("score_b_overall", 0)
+            if sa > sb: return "Model A"
+            elif sb > sa: return "Model B"
+            else: return "Tie"
+        df["winner"] = df.apply(get_winner, axis=1)
+
+    # 2. Key Metrics (Quality)
+    model_a_wins = len(df[df["winner"] == "Model A"])
+    model_b_wins = len(df[df["winner"] == "Model B"])
+    
+    win_rate_a = (model_a_wins / total * 100) if total > 0 else 0
+    win_rate_b = (model_b_wins / total * 100) if total > 0 else 0
+    
+    avg_score_a = df["score_a_overall"].mean()
+    avg_score_b = df["score_b_overall"].mean()
+    
+    st.markdown("#### 🏆 Качество Моделей")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Win Rate (Model A)", f"{win_rate_a:.1f}%")
+    m2.metric("Win Rate (Model B)", f"{win_rate_b:.1f}%")
+    m3.metric("Ср. балл (Model A)", f"{avg_score_a:.1f}")
+    m4.metric("Ср. балл (Model B)", f"{avg_score_b:.1f}")
+    
+    # 3. Tokenomics
+    st.markdown("#### 💰 Токеномика")
+    
+    # Ensure token columns exist and are numeric
+    for col in ["input_tokens", "output_tokens", "total_tokens"]:
+        if col not in df.columns:
+            df[col] = 0
+            
+    total_input = df["input_tokens"].sum()
+    total_output = df["output_tokens"].sum()
+    grand_total_tokens = df["total_tokens"].sum()
+    
+    # Cost Estimation (Mock: 0.40 RUB per 1k tokens combined for simplicity)
+    est_cost = (grand_total_tokens / 1000) * 0.40
+    
+    t1, t2, t3 = st.columns(3)
+    t1.metric("Total Tokens", f"{grand_total_tokens:,}")
+    t2.metric("Avg Tokens / Query", f"{int(grand_total_tokens / total) if total else 0}")
+    t3.metric("Est. Cost (₽)", f"₽{est_cost:.2f}", help="Расчетная стоимость: 0.40 ₽ за 1k токенов")
+    
+    # 4. Charts
+    c1, c2 = st.columns(2)
+    
+    with c1:
+        st.caption("Распределение побед")
+        winner_counts = df["winner"].value_counts().reset_index()
+        winner_counts.columns = ["Winner", "Count"]
+
+        chart = alt.Chart(winner_counts).mark_arc(innerRadius=50).encode(
+            theta=alt.Theta(field="Count", type="quantitative"),
+            color=alt.Color(field="Winner", type="nominal", scale=alt.Scale(domain=['Model A', 'Model B', 'Tie'], range=['#fc3f1d', '#4a90e2', '#999999'])),
+            tooltip=["Winner", "Count"]
+        )
+        st.altair_chart(chart, use_container_width=True)
+        
+    with c2:
+        st.caption("Использование токенов по запросам")
+        # Prepare data for stacked bar chart: Query Index -> Input, Output
+        # Altair needs long format for stacked bars
+        
+        # Add index column for X-axis
+        df_chart = df.reset_index()
+        
+        token_chart_data = df_chart.melt(id_vars=["index"], value_vars=["input_tokens", "output_tokens"], var_name="Token Type", value_name="Count")
+        
+        bar_chart = alt.Chart(token_chart_data).mark_bar().encode(
+            x=alt.X("index:O", title="Номер запроса"),
+            y=alt.Y("Count:Q", title="Количество токенов"),
+            color=alt.Color("Token Type", scale=alt.Scale(domain=['input_tokens', 'output_tokens'], range=['#9CA3AF', '#F59E0B'])),
+            tooltip=["index", "Token Type", "Count"]
+        )
+        st.altair_chart(bar_chart, use_container_width=True)
+
 
 # Main Title
 st.title("⚖️ АвтоАсессор: YandexGPT-as-a-Judge")
@@ -67,14 +169,15 @@ with tab_single:
         if not user_query or not ans_a or not ans_b:
             st.warning("Пожалуйста, заполните запрос и оба ответа.")
         else:
-            with st.spinner("Запрос к YandexGPT..."):
+            with st.spinner(f"Запрос к YandexGPT ({persona_name})..."):
                 result = evaluate_with_yandex(
                     query=user_query,
                     ans_a=ans_a,
                     ans_b=ans_b,
                     api_key=api_key,
                     folder_id=folder_id,
-                    demo_mode=demo_mode
+                    demo_mode=demo_mode,
+                    persona_name=persona_name
                 )
 
             if "error" in result:
@@ -91,6 +194,11 @@ with tab_single:
                 st.markdown(f"### 💡 Сравнительный вердикт")
                 st.info(result.get('comparison', 'Нет сравнительного вердикта.'))
                 
+                # Show Token Usage for Single Mode too
+                if "usage" in result:
+                    usage = result["usage"]
+                    st.caption(f"💰 Tokens: {usage.get('totalTokens')} (In: {usage.get('inputTextTokens')}, Out: {usage.get('completionTokens')})")
+
                 res_col1, res_col2 = st.columns(2)
                 
                 # Helper to display model stats
@@ -119,6 +227,8 @@ with tab_batch:
     st.markdown("Файл должен содержать столбцы: `query`, `answer_a`, `answer_b`.")
     
     uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
+    
+    # Clear state if new file uploaded (optional UX choice, keeping simple for now)
     
     if uploaded_file:
         try:
@@ -153,7 +263,8 @@ with tab_batch:
                             ans_b=row['answer_b'],
                             api_key=api_key,
                             folder_id=folder_id,
-                            demo_mode=demo_mode
+                            demo_mode=demo_mode,
+                            persona_name=persona_name
                         )
                         
                         # Parse Result for CSV
@@ -173,26 +284,42 @@ with tab_batch:
                             
                             row_result["comparison"] = eval_res.get("comparison")
                             
+                            # Token Usage
+                            usage = eval_res.get("usage", {})
+                            row_result["input_tokens"] = int(usage.get("inputTextTokens", 0))
+                            row_result["output_tokens"] = int(usage.get("completionTokens", 0))
+                            row_result["total_tokens"] = int(usage.get("totalTokens", 0))
+                            
                         results.append(row_result)
                         progress_bar.progress((index + 1) / total_rows)
                     
                     status_text.text("Готово!")
                     progress_bar.empty()
                     
-                    # Result Dataframe
+                    # Store in Session State
                     result_df = pd.DataFrame(results)
+                    st.session_state['batch_results'] = result_df
                     
-                    st.success("Пакетная обработка завершена!")
-                    st.dataframe(result_df)
+                # Display Results from Session State
+                if 'batch_results' in st.session_state:
+                    result_df = st.session_state['batch_results']
                     
-                    csv = result_df.to_csv(index=False).encode('utf-8')
-                    st.download_button(
-                        label="Скачать результаты (CSV)",
-                        data=csv,
-                        file_name="evaluation_results.csv",
-                        mime="text/csv",
-                    )
+                    with st.expander("📊 Отчет об оценке", expanded=True):
+                        st.success("Пакетная обработка завершена!")
+                        
+                        # Analytics
+                        show_analytics(result_df)
+                        
+                        st.markdown("### Детализация")
+                        st.dataframe(result_df)
+                        
+                        csv = result_df.to_csv(index=False).encode('utf-8')
+                        st.download_button(
+                            label="Скачать результаты (CSV)",
+                            data=csv,
+                            file_name="evaluation_results.csv",
+                            mime="text/csv",
+                        )
                     
         except Exception as e:
             st.error(f"Ошибка при чтении файла: {e}")
-

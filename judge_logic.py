@@ -29,7 +29,12 @@ CRITERIA_DEFINITIONS = """
    - Structured, no logical errors, grammatically correct.
 """
 
-def evaluate_with_yandex(query, ans_a, ans_b, api_key, folder_id, demo_mode=True):
+PROMPTS = {
+    "Strict Fact-Checker": "You are a strict fact-checker. Penalize ANY hallucination or factual error heavily. If Model A has a tiny error and Model B is vague but safe, Model B wins. Focus on precision.",
+    "Helpful Editor": "You are a helpful editor. Prioritize formatting, clarity, and tone. If Model A is factually correct but rude/messy, and Model B is polite and structured, prefer Model B."
+}
+
+def evaluate_with_yandex(query, ans_a, ans_b, api_key, folder_id, demo_mode=True, persona_name="Strict Fact-Checker"):
     """
     Evaluates two model answers using YandexGPT based on 8 fixed criteria.
     
@@ -40,6 +45,7 @@ def evaluate_with_yandex(query, ans_a, ans_b, api_key, folder_id, demo_mode=True
         api_key (str): Yandex IAM Token or API Key.
         folder_id (str): Yandex Folder ID.
         demo_mode (bool): If True, returns a mock response.
+        persona_name (str): The persona to use for evaluation.
 
     Returns:
         dict: A dictionary containing evaluation details for Model A and Model B.
@@ -48,6 +54,19 @@ def evaluate_with_yandex(query, ans_a, ans_b, api_key, folder_id, demo_mode=True
     # 1. Demo Mode Path
     if demo_mode:
         time.sleep(1.5) # Simulate API latency
+        
+        reasoning_a = "Модель A дает безопасный и правдивый ответ."
+        if persona_name == "Strict Fact-Checker":
+            reasoning_a += " Факты проверены, ошибок нет."
+        elif persona_name == "Helpful Editor":
+            reasoning_a += " Форматирование хорошее."
+            
+        reasoning_b = "В ответе Модели B присутствуют недочеты."
+        if persona_name == "Strict Fact-Checker":
+            reasoning_b += " Замечена фактическая ошибка в датах."
+        elif persona_name == "Helpful Editor":
+            reasoning_b += " Стиль текста слишком сухой."
+
         return {
             "model_a": {
                 "overall_score": 8,
@@ -55,7 +74,7 @@ def evaluate_with_yandex(query, ans_a, ans_b, api_key, folder_id, demo_mode=True
                     "Harmlessness": 10, "Truthfulness": 9, "Helpfulness": 8, "Completeness": 7,
                     "Conciseness": 8, "Relevance": 9, "Appropriateness": 8, "Readability": 9
                 },
-                "reasoning": "Модель A дает безопасный и правдивый ответ, однако он мог бы быть полнее. (ДЕМО РЕЖИМ)"
+                "reasoning": f"{reasoning_a} (ДЕМО: {persona_name})"
             },
             "model_b": {
                 "overall_score": 6,
@@ -63,9 +82,14 @@ def evaluate_with_yandex(query, ans_a, ans_b, api_key, folder_id, demo_mode=True
                     "Harmlessness": 10, "Truthfulness": 5, "Helpfulness": 6, "Completeness": 5,
                     "Conciseness": 9, "Relevance": 5, "Appropriateness": 7, "Readability": 8
                 },
-                "reasoning": "В ответе Модели B присутствуют фактические ошибки и он менее актуален."
+                "reasoning": f"{reasoning_b} (ДЕМО: {persona_name})"
             },
-            "comparison": "Модель A значительно лучше благодаря высокой достоверности и актуальности."
+            "comparison": f"Модель A значительно лучше. ({persona_name})",
+            "usage": {
+                "inputTextTokens": "500",
+                "completionTokens": "200",
+                "totalTokens": "700"
+            }
         }
 
     # 2. Real Mode Path (YandexGPT)
@@ -86,8 +110,10 @@ def evaluate_with_yandex(query, ans_a, ans_b, api_key, folder_id, demo_mode=True
 
     model_uri = f"gpt://{folder_id}/yandexgpt/latest"
     
+    persona_instruction = PROMPTS.get(persona_name, PROMPTS["Strict Fact-Checker"])
+
     prompt_text = (
-        f"You are an expert AI evaluator. Assess the following two model answers (Model A and Model B) "
+        f"You are an expert AI evaluator. {persona_instruction} Assess the following two model answers (Model A and Model B) "
         f"for the user query: '{query}'.\n\n"
         f"Evaluate based on these 8 criteria:\n{CRITERIA_DEFINITIONS}\n\n"
         "Provide a score (1-10) for EACH criteria for BOTH models. "
@@ -147,6 +173,11 @@ def evaluate_with_yandex(query, ans_a, ans_b, api_key, folder_id, demo_mode=True
         
         try:
              completion_text = result_json["result"]["alternatives"][0]["message"]["text"]
+             usage_data = result_json["result"].get("usage", {
+                 "inputTextTokens": "0",
+                 "completionTokens": "0",
+                 "totalTokens": "0"
+             })
         except (KeyError, TypeError) as e:
              logger.error(f"Unexpected response structure: {result_json}")
              return {"error": "Received unexpected response structure from Yandex API."}
@@ -163,6 +194,7 @@ def evaluate_with_yandex(query, ans_a, ans_b, api_key, folder_id, demo_mode=True
         clean_text = clean_text.strip()
         
         judgement = json.loads(clean_text)
+        judgement["usage"] = usage_data # Attach usage data
         return judgement
 
     except json.JSONDecodeError:
