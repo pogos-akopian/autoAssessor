@@ -55,7 +55,7 @@ def evaluate_with_yandex(query, ans_a, ans_b, api_key, folder_id, demo_mode=True
                     "Harmlessness": 10, "Truthfulness": 9, "Helpfulness": 8, "Completeness": 7,
                     "Conciseness": 8, "Relevance": 9, "Appropriateness": 8, "Readability": 9
                 },
-                "reasoning": "Model A is very safe and truthful but could be more complete."
+                "reasoning": "Модель A дает безопасный и правдивый ответ, однако он мог бы быть полнее. (ДЕМО РЕЖИМ)"
             },
             "model_b": {
                 "overall_score": 6,
@@ -63,9 +63,9 @@ def evaluate_with_yandex(query, ans_a, ans_b, api_key, folder_id, demo_mode=True
                     "Harmlessness": 10, "Truthfulness": 5, "Helpfulness": 6, "Completeness": 5,
                     "Conciseness": 9, "Relevance": 5, "Appropriateness": 7, "Readability": 8
                 },
-                "reasoning": "Model B has some factual errors and is less relevant."
+                "reasoning": "В ответе Модели B присутствуют фактические ошибки и он менее актуален."
             },
-            "comparison": "Model A is significantly better due to higher truthfulness and relevance."
+            "comparison": "Модель A значительно лучше благодаря высокой достоверности и актуальности."
         }
 
     # 2. Real Mode Path (YandexGPT)
@@ -92,7 +92,7 @@ def evaluate_with_yandex(query, ans_a, ans_b, api_key, folder_id, demo_mode=True
         f"Evaluate based on these 8 criteria:\n{CRITERIA_DEFINITIONS}\n\n"
         "Provide a score (1-10) for EACH criteria for BOTH models. "
         "Also provide an 'overall_score' (1-10) for each model based on the criteria. "
-        "Finally, provide a brief reasoning string for each model explaining the rating.\n\n"
+        "Finally, provide a brief reasoning string for each model explaining the rating IN RUSSIAN (На русском языке).\n\n"
         "Return the result ONLY as a valid JSON object with the following structure:\n"
         "{\n"
         "  'model_a': {\n"
@@ -107,10 +107,10 @@ def evaluate_with_yandex(query, ans_a, ans_b, api_key, folder_id, demo_mode=True
         "       'Appropriateness': int,\n"
         "       'Readability': int\n"
         "    },\n"
-        "    'reasoning': str\n"
+        "    'reasoning': str (MUST BE IN RUSSIAN)\n"
         "  },\n"
         "  'model_b': { ... same structure ... },\n"
-        "  'comparison': str (brief comparison summary)\n"
+        "  'comparison': str (brief comparison summary IN RUSSIAN)\n"
         "}"
     )
     
